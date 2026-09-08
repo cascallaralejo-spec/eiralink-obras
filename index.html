@@ -1063,33 +1063,53 @@ function aspectosHTML(c){
       }).join("")
     + '</div>';
 }
+function obrasDe(c){ return Array.isArray(c.obras) ? c.obras : []; }
 function renderAgendaView(){
+  const rolesOpts = [...new Set(agRows.map(c=>c.rol||"Sin rol"))].sort();
+  const selStyle = 'style="flex:1; min-width:140px; padding:10px 12px; border-radius:12px; border:1px solid var(--line); background:var(--surface); box-shadow:var(--shadow)"';
   main.innerHTML =
     '<div class="obra-head">'
     + '<button class="backbtn" id="agBack" aria-label="Volver"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>'
     + '<h2>Agenda de contactos</h2>'
     + '</div>'
-    + '<input id="agFiltro" type="text" placeholder="Buscar por nombre, gremio u obra…" maxlength="60" '
+    + '<input id="agFiltro" type="text" placeholder="Buscar por nombre…" maxlength="60" '
     + 'style="width:100%; padding:12px 14px; border-radius:14px; border:1px solid var(--line); background:var(--surface); box-shadow:var(--shadow)">'
+    + '<div style="display:flex; gap:8px; flex-wrap:wrap">'
+    + '<select id="agRol" '+selStyle+'><option value="">Todos los gremios</option></select>'
+    + '<select id="agObra" '+selStyle+'><option value="">Todas las obras</option>'
+    + [...S.obras.entries()].map(([id,o])=>'<option value="'+esc(id)+'">'+esc(o.nombre)+'</option>').join("")
+    + '</select>'
+    + '</div>'
     + '<div id="agList" class="meta" style="display:flex; flex-direction:column; gap:14px">Cargando…</div>';
   $("agBack").onclick = ()=> setView("home");
   $("agFiltro").addEventListener("input", renderAgendaLista);
+  $("agRol").addEventListener("change", renderAgendaLista);
+  $("agObra").addEventListener("change", renderAgendaLista);
   api("contactos?select=*&order=rol,nombre")
-    .then(r=>{ agRows = r; renderAgendaLista(); })
+    .then(r=>{
+      agRows = r;
+      const sel = $("agRol");
+      if(sel) sel.innerHTML = '<option value="">Todos los gremios</option>'
+        + [...new Set(agRows.map(c=>c.rol||"Sin rol"))].sort().map(x=>'<option>'+esc(x)+'</option>').join("");
+      renderAgendaLista();
+    })
     .catch(()=>{ const l = $("agList"); if(l) l.textContent = "No se pudo cargar la agenda. Revisá tu conexión."; });
 }
 function renderAgendaLista(){
   const list = $("agList"); if(!list) return;
   const q = ($("agFiltro") ? $("agFiltro").value : "").trim().toLowerCase();
+  const fRol = $("agRol") ? $("agRol").value : "";
+  const fObra = $("agObra") ? $("agObra").value : "";
   const rows = agRows.filter(c=>{
+    if(fRol && (c.rol||"Sin rol") !== fRol) return false;
+    if(fObra && !obrasDe(c).includes(fObra)) return false;
     if(!q) return true;
-    const o = S.obras.get(c.obra_id);
-    return c.nombre.toLowerCase().includes(q) || (c.rol||"").toLowerCase().includes(q)
-      || (o && o.nombre.toLowerCase().includes(q)) || (c.notas||"").toLowerCase().includes(q);
+    return c.nombre.toLowerCase().includes(q) || (c.notas||"").toLowerCase().includes(q)
+      || (c.telefono||"").toLowerCase().includes(q);
   });
   if(!rows.length){
     list.className = "meta";
-    list.innerHTML = '<div class="card empty">'+(agRows.length ? "Sin resultados para esa búsqueda." : "Todavía no hay contactos cargados.<br>Se agregan desde el botón Contactos de cada obra.")+'</div>';
+    list.innerHTML = '<div class="card empty">'+(agRows.length ? "Sin resultados con esos filtros." : "Todavía no hay contactos cargados.<br>Se agregan desde el botón Contactos de cada obra.")+'</div>';
     return;
   }
   const grupos = {};
@@ -1102,15 +1122,31 @@ function renderAgendaLista(){
       + '<div class="section-title" style="margin-bottom:8px">'+esc(rol)+' <span class="count">'+cs.length+'</span></div>'
       + '<div class="card">'
       + cs.map(c=>{
-          const o = S.obras.get(c.obra_id);
           const prom = promedioCalif(c);
+          const abierto = ctExpandido.has(c.id);
+          const chipsObras = obrasDe(c).map(oid=>{
+            const o = S.obras.get(oid);
+            return o ? '<button class="chip" data-goobra="'+esc(oid)+'" style="font-size:11px; cursor:pointer">'+esc(o.nombre)+'</button>' : '';
+          }).join(" ");
+          let editor = "";
+          if(abierto){
+            editor = aspectosHTML(c)
+              + '<div class="meta" style="margin-top:8px">Obras en las que trabaja:</div>'
+              + '<div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:4px">'
+              + [...S.obras.entries()].map(([oid,o])=>{
+                  const en = obrasDe(c).includes(oid);
+                  return '<button data-ctobra="'+esc(c.id)+'" data-oid="'+esc(oid)+'" class="chip" style="cursor:pointer;'+(en?'background:var(--brand-soft); color:var(--brand-deep)':'')+'">'+(en?'✓ ':'+ ')+esc(o.nombre)+'</button>';
+                }).join("")
+              + '</div>'
+              + '<div style="margin-top:8px"><button class="rm" data-ctrm="'+esc(c.id)+'" data-ctnom="'+esc(c.nombre)+'">Quitar de la agenda</button></div>';
+          }
           return '<div class="item" style="gap:12px">'
             + '<span class="avatar" style="flex:none; margin-top:2px">'+esc(initials(c.nombre))+'</span>'
             + '<div class="item-body">'
-            + '<div><strong>'+esc(c.nombre)+'</strong>'
-            + (o ? ' <button class="chip" data-goobra="'+esc(c.obra_id)+'" style="font-size:11px; cursor:pointer">'+esc(o.nombre)+'</button>' : '')
-            + '</div>'
-            + '<div>'+(prom>0 ? estrellasFijas(prom)+' <span class="meta">'+prom.toFixed(1)+'</span>' : '<span class="meta">Sin calificar</span>')+'</div>'
+            + '<div><strong>'+esc(c.nombre)+'</strong> '+chipsObras+'</div>'
+            + '<div>'+(prom>0 ? estrellasFijas(prom)+' <span class="meta">'+prom.toFixed(1)+'</span>' : '<span class="meta">Sin calificar</span>')
+            + ' <button class="thread-toggle" data-ctcal="'+esc(c.id)+'" style="display:inline">'+(abierto?'Cerrar':'Calificar / editar')+'</button></div>'
+            + editor
             + (c.telefono ? '<div class="item-meta"><span style="font-variant-numeric:tabular-nums">'+esc(c.telefono)+'</span>'
               + '<a href="'+esc(telLink(c.telefono))+'" style="text-decoration:none" aria-label="Llamar">📞 Llamar</a>'
               + '<a href="'+esc(waLink(c.telefono))+'" target="_blank" rel="noopener" style="text-decoration:none" aria-label="WhatsApp">💬 WhatsApp</a></div>' : '')
@@ -1122,14 +1158,57 @@ function renderAgendaLista(){
   list.querySelectorAll("[data-goobra]").forEach(b=>{
     b.onclick = ()=> setView("obra", b.dataset.goobra);
   });
+  list.querySelectorAll("[data-ctcal]").forEach(b=>{
+    b.onclick = ()=>{
+      const id = b.dataset.ctcal;
+      if(ctExpandido.has(id)) ctExpandido.delete(id); else ctExpandido.add(id);
+      renderAgendaLista();
+    };
+  });
+  list.querySelectorAll("[data-star]").forEach(b=>{
+    b.onclick = async ()=>{
+      const c = agRows.find(x=>x.id===b.dataset.ctid); if(!c) return;
+      const cal = Object.assign({}, c.calificacion||{});
+      cal[b.dataset.asp] = Number(b.dataset.star);
+      try{
+        await api("contactos?id=eq."+encodeURIComponent(c.id), {method:"PATCH", body:{calificacion:cal}});
+        c.calificacion = cal;
+        renderAgendaLista();
+      }catch(e){ toast("No se pudo calificar."); }
+    };
+  });
+  list.querySelectorAll("[data-ctobra]").forEach(b=>{
+    b.onclick = async ()=>{
+      const c = agRows.find(x=>x.id===b.dataset.ctobra); if(!c) return;
+      const oid = b.dataset.oid;
+      let obras = obrasDe(c).slice();
+      if(obras.includes(oid)){
+        if(obras.length===1){ toast("Tiene que quedar en al menos una obra. Usá Quitar de la agenda para borrarlo."); return; }
+        obras = obras.filter(x=>x!==oid);
+      } else obras.push(oid);
+      try{
+        await api("contactos?id=eq."+encodeURIComponent(c.id), {method:"PATCH", body:{obras}});
+        c.obras = obras;
+        renderAgendaLista();
+      }catch(e){ toast("No se pudo actualizar."); }
+    };
+  });
+  list.querySelectorAll("[data-ctrm]").forEach(b=>{
+    b.onclick = ()=> openConfirm("¿Quitar a "+b.dataset.ctnom+" de la agenda?","Se borra el contacto y sus calificaciones de todas las obras.", async ()=>{
+      try{
+        await api("contactos?id=eq."+encodeURIComponent(b.dataset.ctrm), {method:"DELETE"});
+        agRows = agRows.filter(x=>x.id!==b.dataset.ctrm);
+      }catch(e){ toast("No se pudo quitar."); }
+      renderAgendaLista();
+    });
+  });
 }
 async function openContactos(){
   const o = obraActual(); if(!o) return;
   openSheet(
-    '<div class="sheet-head"><h3>Contactos · '+esc(o.nombre)+'</h3><button class="closebtn">✕</button></div>'
-    + '<div id="ctList" class="meta">Cargando…</div>'
-    + '<div style="border-top:1px solid var(--line); padding-top:14px; display:flex; flex-direction:column; gap:10px">'
-    + '<label style="margin:0">Agregar contacto</label>'
+    '<div class="sheet-head"><h3>Agregar contacto · '+esc(o.nombre)+'</h3><button class="closebtn">✕</button></div>'
+    + '<p class="meta" style="margin:0">El contacto queda asociado a esta obra y se suma a la agenda general, donde se lo puede ver, calificar y llamar.</p>'
+    + '<div style="display:flex; flex-direction:column; gap:10px">'
     + '<div style="display:flex; gap:8px; flex-wrap:wrap">'
     + '<select id="ctRol" style="flex:1; min-width:150px; padding:10px 12px; border-radius:12px; border:1px solid var(--line); background:var(--bg)">'
     + ROLES.map(r=>'<option>'+esc(r)+'</option>').join("")
@@ -1139,35 +1218,30 @@ async function openContactos(){
     + '<input id="ctNombre" type="text" placeholder="Nombre y apellido" maxlength="60">'
     + '<input id="ctTel" type="tel" placeholder="Teléfono (ej: 11 5555 5555)" maxlength="30">'
     + '<input id="ctNotas" type="text" placeholder="Notas (opcional: empresa, horario, etc.)" maxlength="120">'
-    + '<div class="actions"><button class="btn-primary" id="ctAdd">Agregar contacto</button></div>'
+    + '<div class="actions">'
+    + '<button class="btn-ghost" id="ctVerAgenda">Ver agenda</button>'
+    + '<button class="btn-primary" id="ctAdd">Agregar contacto</button></div>'
     + '</div>'
   );
   $("ctRol").onchange = ()=>{ $("ctRolOtro").hidden = $("ctRol").value !== "Otro"; };
+  $("ctVerAgenda").onclick = ()=>{ closeSheet(); setView("agenda"); };
   $("ctAdd").onclick = async ()=>{
     const nombre = $("ctNombre").value.trim();
     if(!nombre){ toast("Poné el nombre del contacto."); return; }
     let rol = $("ctRol").value;
     if(rol==="Otro") rol = $("ctRolOtro").value.trim() || "Otro";
-    const fila = {id:uid(), obra_id:S.obraId, rol, nombre,
+    const fila = {id:uid(), obras:[S.obraId], rol, nombre,
       telefono:$("ctTel").value.trim(), notas:$("ctNotas").value.trim(),
       calificacion:{}, agregado_por:S.me, fecha:nowISO()};
     try{
       await api("contactos", {method:"POST", body:[fila]});
       logEvento(S.obraId, "agregó un contacto", rol+": "+nombre);
-      $("ctNombre").value=""; $("ctTel").value=""; $("ctNotas").value="";
-      cargarContactos();
+      closeSheet();
+      toast(nombre+" quedó agregado a la agenda ✓");
     }catch(e){ toast("No se pudo agregar."); }
   };
-  cargarContactos();
 }
-async function cargarContactos(){
-  const list = $("ctList"); if(!list) return;
-  try{
-    ctRows = await api("contactos?obra_id=eq."+encodeURIComponent(S.obraId)+"&order=rol,nombre");
-    renderCtList();
-  }catch(e){ list.textContent = "No se pudieron cargar los contactos."; }
-}
-function renderCtList(){
+function renderCtList_obsoleta(){
   const list = $("ctList"); if(!list) return;
   if(!ctRows.length){ list.className="meta"; list.textContent = "Sin contactos todavía. Cargá el primero acá abajo."; return; }
   list.className = "";
@@ -1407,7 +1481,7 @@ async function exportarMinuta(){
   // contactos de la obra
   let docFinal = doc;
   try{
-    const cts = await api("contactos?obra_id=eq."+encodeURIComponent(S.obraId)+"&order=rol,nombre");
+    const cts = await api("contactos?obras=cs."+encodeURIComponent('["'+S.obraId+'"]')+"&order=rol,nombre");
     if(cts && cts.length){
       const sec = "<h2>Contactos de obra ("+cts.length+")</h2><ul>"
         + cts.map(c=>{
