@@ -786,7 +786,7 @@ function renderObra(){
       + (o.minutaFecha?'<div class="meta">Actualizada por '+esc(o.minutaPor||"—")+' · '+fmtFecha(o.minutaFecha)+'</div>':'')
     : '<div class="minuta-text placeholder">Todavía no hay minuta. Tocá Editar y anotá los aspectos generales de la obra.</div>';
   html += '<div class="card minuta-card"><div class="mhead"><h3>Minuta de obra</h3>'
-    + (o.estado==="activa"?'<button class="editbtn" id="editMinutaBtn">Editar</button>':'')
+    + (o.estado==="activa"?'<button class="editbtn" id="iaMinutaBtn">✨ Actualizar</button><button class="editbtn" id="editMinutaBtn">Editar</button>':'')
     + '</div>'+minutaHtml+'</div>';
 
   // pendientes
@@ -820,6 +820,7 @@ function renderObra(){
     else cambiarEstadoObra(S.obraId,"activa").then(()=>setView("obra",S.obraId));
   };
   if($("editMinutaBtn")) $("editMinutaBtn").onclick = openEditMinuta;
+  if($("iaMinutaBtn")) $("iaMinutaBtn").onclick = actualizarMinutaIA;
   if($("resToggle")) $("resToggle").onclick = ()=>{ S.showResueltas=!S.showResueltas; render(); };
 
   main.querySelectorAll("[data-toggle]").forEach(el=>{
@@ -1020,6 +1021,32 @@ function openConfirm(titulo, detalle, onOk){
   $("cfSi").onclick = ()=>{ closeSheet(); onOk(); };
 }
 
+async function actualizarMinutaIA(){
+  const o = obraActual(); if(!o) return;
+  const btn = $("iaMinutaBtn");
+  if(btn){ btn.disabled = true; btn.textContent = "Generando…"; }
+  try{
+    const r = await fetch(SB_URL+"/functions/v1/asistente", {
+      method:"POST", headers:{"content-type":"application/json"},
+      body: JSON.stringify({obra_id:S.obraId, accion:"minuta"})
+    });
+    const data = await r.json();
+    if(data.minuta){
+      openEditMinuta();
+      const mta = $("minutaTa");
+      if(mta){
+        mta.value = data.minuta;
+        const lbl = modalRoot.querySelector('label[for="minutaTa"]');
+        if(lbl) lbl.textContent = "Propuesta actualizada por IA — revisala y tocá Guardar minuta";
+      }
+    }
+    else if(data.error==="sin_clave"||data.error==="clave_invalida") toast("Falta configurar la clave de API del asistente.");
+    else if(data.error==="sin_credito") toast("Se acabó el crédito del asistente. Avisale a Alejo.");
+    else toast("No se pudo generar la minuta. Probá de nuevo.");
+  }catch(e){ toast("No se pudo conectar. Revisá tu conexión."); }
+  const b2 = $("iaMinutaBtn");
+  if(b2){ b2.disabled = false; b2.textContent = "✨ Actualizar"; }
+}
 function openAsistente(){
   const o = obraActual(); if(!o) return;
   openSheet(
@@ -1053,6 +1080,8 @@ function openAsistente(){
       if(data.respuesta) resp.textContent = data.respuesta;
       else if(data.error==="sin_clave" || data.error==="clave_invalida")
         resp.textContent = "El asistente todavía no está configurado (falta la clave de API). Avisale a Alejo.";
+      else if(data.error==="sin_credito")
+        resp.textContent = "Se acabó el crédito del asistente. Avisale a Alejo para recargarlo.";
       else resp.textContent = "No pude responder ahora. Probá de nuevo en un momento.";
     }catch(e){ resp.textContent = "No pude conectarme. Revisá tu conexión e intentá de nuevo."; }
     btn.disabled = false; btn.textContent = "Preguntar";
