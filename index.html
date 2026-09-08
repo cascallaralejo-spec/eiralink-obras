@@ -716,8 +716,12 @@ function renderHome(){
       + (S.showFinalizadas ? finalizadas.map(([id,o])=>obraCardHTML(id,o,true)).join("") : "")
       + '</div>';
   }
+  html += '<button class="btn-ghost" id="cambiarUsuarioBtn" style="align-self:center; display:flex; align-items:center; gap:8px">'
+    + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>'
+    + 'Cambiar de usuario (no soy '+esc(S.me)+')</button>';
   main.innerHTML = html;
   if($("alertBanner")) $("alertBanner").onclick = openAlertas;
+  $("cambiarUsuarioBtn").onclick = ()=>{ S.me=null; lsSet("eira_user",""); setView("setup"); };
   $("nuevaObraBtn").onclick = openNuevaObra;
   if($("finToggle")) $("finToggle").onclick = ()=>{ S.showFinalizadas=!S.showFinalizadas; render(); };
   main.querySelectorAll("[data-obra]").forEach(el=>{
