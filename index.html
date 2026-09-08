@@ -258,6 +258,8 @@ main.has-composer{padding-bottom:150px}
 .team-row{display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line)}
 .team-row:last-child{border-bottom:none}
 .team-row span{flex:1; font-weight:600}
+.team-row .avatar{flex:0 0 28px; width:28px}
+.team-row .chip{flex:none}
 .team-row .rm{color:var(--danger); font-size:13px; font-weight:600}
 
 .toast{
@@ -716,11 +718,15 @@ function renderHome(){
       + (S.showFinalizadas ? finalizadas.map(([id,o])=>obraCardHTML(id,o,true)).join("") : "")
       + '</div>';
   }
+  html += '<button class="btn-ghost" id="agendaBtn" style="align-self:center; display:flex; align-items:center; gap:8px">'
+    + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9"/><path d="M16 3.1a4 4 0 0 1 0 7.8"/></svg>'
+    + 'Agenda de contactos por gremio</button>';
   html += '<button class="btn-ghost" id="cambiarUsuarioBtn" style="align-self:center; display:flex; align-items:center; gap:8px">'
     + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>'
     + 'Cambiar de usuario (no soy '+esc(S.me)+')</button>';
   main.innerHTML = html;
   if($("alertBanner")) $("alertBanner").onclick = openAlertas;
+  $("agendaBtn").onclick = openAgenda;
   $("cambiarUsuarioBtn").onclick = ()=>{ S.me=null; lsSet("eira_user",""); setView("setup"); };
   $("nuevaObraBtn").onclick = openNuevaObra;
   if($("finToggle")) $("finToggle").onclick = ()=>{ S.showFinalizadas=!S.showFinalizadas; render(); };
@@ -1033,7 +1039,7 @@ function waLink(t){
   return "https://wa.me/" + d;
 }
 const ASPECTOS = [["paciencia","Paciencia"],["agilidad","Agilidad"],["diseno","Diseño"],["comunicacion","Comunicación"],["precio","Precio"]];
-let ctRows = [], ctExpandido = new Set();
+let ctRows = [], ctExpandido = new Set(), agRows = [];
 function promedioCalif(c){
   const cal = c.calificacion || {};
   const vals = ASPECTOS.map(a=>cal[a[0]]).filter(v=>v>0);
@@ -1055,6 +1061,55 @@ function aspectosHTML(c){
         return '<div style="display:flex; align-items:center; gap:8px"><span class="meta" style="width:100px">'+esc(a[1])+'</span>'+stars+'</div>';
       }).join("")
     + '</div>';
+}
+async function openAgenda(){
+  openSheet(
+    '<div class="sheet-head"><h3>Agenda de contactos</h3><button class="closebtn">✕</button></div>'
+    + '<input id="agFiltro" type="text" placeholder="Buscar por nombre, gremio u obra…" maxlength="60">'
+    + '<div id="agList" class="meta">Cargando…</div>'
+  );
+  try{
+    agRows = await api("contactos?select=*&order=rol,nombre");
+  }catch(e){ const l=$("agList"); if(l) l.textContent = "No se pudo cargar la agenda."; return; }
+  $("agFiltro").addEventListener("input", renderAgenda);
+  renderAgenda();
+}
+function renderAgenda(){
+  const list = $("agList"); if(!list) return;
+  const q = ($("agFiltro") ? $("agFiltro").value : "").trim().toLowerCase();
+  const rows = agRows.filter(c=>{
+    if(!q) return true;
+    const o = S.obras.get(c.obra_id);
+    return c.nombre.toLowerCase().includes(q) || (c.rol||"").toLowerCase().includes(q)
+      || (o && o.nombre.toLowerCase().includes(q)) || (c.notas||"").toLowerCase().includes(q);
+  });
+  if(!rows.length){
+    list.className = "meta";
+    list.textContent = agRows.length ? "Sin resultados para esa búsqueda." : "Todavía no hay contactos cargados. Se agregan desde el botón Contactos de cada obra.";
+    return;
+  }
+  const grupos = {};
+  for(const c of rows){ const r = c.rol || "Sin rol"; (grupos[r] = grupos[r] || []).push(c); }
+  list.className = "";
+  list.innerHTML = Object.keys(grupos).sort((a,b)=>a.localeCompare(b)).map(rol=>{
+    const cs = grupos[rol].slice().sort((a,b)=> promedioCalif(b)-promedioCalif(a) || a.nombre.localeCompare(b.nombre));
+    return '<div class="section-title" style="margin-top:14px">'+esc(rol)+' <span class="count">'+cs.length+'</span></div>'
+      + cs.map(c=>{
+          const o = S.obras.get(c.obra_id);
+          const prom = promedioCalif(c);
+          return '<div class="team-row" style="align-items:flex-start">'
+            + '<span class="avatar" style="margin-top:2px">'+esc(initials(c.nombre))+'</span>'
+            + '<span style="flex:1; min-width:0; font-weight:400">'
+            + '<strong>'+esc(c.nombre)+'</strong>'
+            + (o ? ' <span class="chip" style="font-size:11px">'+esc(o.nombre)+'</span>' : '')
+            + '<br>'+(prom>0 ? estrellasFijas(prom)+' <span class="meta">'+prom.toFixed(1)+'</span>' : '<span class="meta">Sin calificar</span>')
+            + (c.telefono ? '<br><span class="meta" style="font-variant-numeric:tabular-nums">'+esc(c.telefono)+'</span> '
+              + '<a href="'+esc(telLink(c.telefono))+'" style="text-decoration:none; margin-left:6px" aria-label="Llamar">📞</a> '
+              + '<a href="'+esc(waLink(c.telefono))+'" target="_blank" rel="noopener" style="text-decoration:none; margin-left:4px" aria-label="WhatsApp">💬</a>' : '')
+            + (c.notas ? '<br><span class="meta">'+esc(c.notas)+'</span>' : '')
+            + '</span></div>';
+        }).join("");
+  }).join("");
 }
 async function openContactos(){
   const o = obraActual(); if(!o) return;
