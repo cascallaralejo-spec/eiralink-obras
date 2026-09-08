@@ -773,6 +773,7 @@ function renderObra(){
 
   html += '<div class="botonera">'
     + '<button id="iaBtn"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.6 5.6 1.9-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z"/><path d="M19 15l.7 2.1L22 18l-2.3.9L19 21l-.7-2.1L16 18l2.3-.9z"/></svg>Asistente</button>'
+    + '<button id="contactosBtn"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9"/><path d="M16 3.1a4 4 0 0 1 0 7.8"/></svg>Contactos</button>'
     + '<button id="histBtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Historial</button>'
     + '<button id="expBtn"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Exportar</button>'
     + (o.estado==="activa"
@@ -813,6 +814,7 @@ function renderObra(){
 
   $("backBtn").onclick = ()=> setView("home");
   $("iaBtn").onclick = openAsistente;
+  $("contactosBtn").onclick = openContactos;
   $("histBtn").onclick = openHistorial;
   $("expBtn").onclick = exportarMinuta;
   $("finObraBtn").onclick = ()=>{
@@ -1021,6 +1023,134 @@ function openConfirm(titulo, detalle, onOk){
   $("cfSi").onclick = ()=>{ closeSheet(); onOk(); };
 }
 
+// ---------- contactos de obra ----------
+const ROLES = ["Arquitecto/a","Encargado/a de obra","Electricista","Plomero/a","Gasista","Calefaccionista","Riego","Albañil","Pintor/a","Carpintero/a","Herrero/a","Durlock/Yesería","Redes e Internet","Seguridad/Alarmas","Cliente","Proveedor","Otro"];
+function telLink(t){ return "tel:" + t.replace(/[^\d+]/g,""); }
+function waLink(t){
+  let d = t.replace(/\D/g,"");
+  if(d.startsWith("0")) d = d.slice(1);
+  if(!d.startsWith("54")) d = "549" + d;
+  return "https://wa.me/" + d;
+}
+const ASPECTOS = [["paciencia","Paciencia"],["agilidad","Agilidad"],["diseno","Diseño"],["comunicacion","Comunicación"],["precio","Precio"]];
+let ctRows = [], ctExpandido = new Set();
+function promedioCalif(c){
+  const cal = c.calificacion || {};
+  const vals = ASPECTOS.map(a=>cal[a[0]]).filter(v=>v>0);
+  return vals.length ? vals.reduce((s,v)=>s+v,0)/vals.length : 0;
+}
+function estrellasFijas(valor){
+  let h = '<span style="letter-spacing:1px">';
+  for(let n=1; n<=5; n++) h += '<span style="color:'+(n<=Math.round(valor)?'var(--amber)':'var(--line)')+'">★</span>';
+  return h + '</span>';
+}
+function aspectosHTML(c){
+  const cal = c.calificacion || {};
+  return '<div style="display:flex; flex-direction:column; gap:2px; margin-top:6px">'
+    + ASPECTOS.map(a=>{
+        let stars = '';
+        for(let n=1; n<=5; n++){
+          stars += '<button data-ctid="'+esc(c.id)+'" data-asp="'+a[0]+'" data-star="'+n+'" aria-label="'+esc(a[1])+': '+n+' estrellas" style="font-size:17px; padding:1px 2px; color:'+(n<=(cal[a[0]]||0)?'var(--amber)':'var(--line)')+'">★</button>';
+        }
+        return '<div style="display:flex; align-items:center; gap:8px"><span class="meta" style="width:100px">'+esc(a[1])+'</span>'+stars+'</div>';
+      }).join("")
+    + '</div>';
+}
+async function openContactos(){
+  const o = obraActual(); if(!o) return;
+  openSheet(
+    '<div class="sheet-head"><h3>Contactos · '+esc(o.nombre)+'</h3><button class="closebtn">✕</button></div>'
+    + '<div id="ctList" class="meta">Cargando…</div>'
+    + '<div style="border-top:1px solid var(--line); padding-top:14px; display:flex; flex-direction:column; gap:10px">'
+    + '<label style="margin:0">Agregar contacto</label>'
+    + '<div style="display:flex; gap:8px; flex-wrap:wrap">'
+    + '<select id="ctRol" style="flex:1; min-width:150px; padding:10px 12px; border-radius:12px; border:1px solid var(--line); background:var(--bg)">'
+    + ROLES.map(r=>'<option>'+esc(r)+'</option>').join("")
+    + '</select>'
+    + '<input id="ctRolOtro" type="text" placeholder="¿Qué rol?" maxlength="40" style="flex:1; min-width:120px" hidden>'
+    + '</div>'
+    + '<input id="ctNombre" type="text" placeholder="Nombre y apellido" maxlength="60">'
+    + '<input id="ctTel" type="tel" placeholder="Teléfono (ej: 11 5555 5555)" maxlength="30">'
+    + '<input id="ctNotas" type="text" placeholder="Notas (opcional: empresa, horario, etc.)" maxlength="120">'
+    + '<div class="actions"><button class="btn-primary" id="ctAdd">Agregar contacto</button></div>'
+    + '</div>'
+  );
+  $("ctRol").onchange = ()=>{ $("ctRolOtro").hidden = $("ctRol").value !== "Otro"; };
+  $("ctAdd").onclick = async ()=>{
+    const nombre = $("ctNombre").value.trim();
+    if(!nombre){ toast("Poné el nombre del contacto."); return; }
+    let rol = $("ctRol").value;
+    if(rol==="Otro") rol = $("ctRolOtro").value.trim() || "Otro";
+    const fila = {id:uid(), obra_id:S.obraId, rol, nombre,
+      telefono:$("ctTel").value.trim(), notas:$("ctNotas").value.trim(),
+      calificacion:{}, agregado_por:S.me, fecha:nowISO()};
+    try{
+      await api("contactos", {method:"POST", body:[fila]});
+      logEvento(S.obraId, "agregó un contacto", rol+": "+nombre);
+      $("ctNombre").value=""; $("ctTel").value=""; $("ctNotas").value="";
+      cargarContactos();
+    }catch(e){ toast("No se pudo agregar."); }
+  };
+  cargarContactos();
+}
+async function cargarContactos(){
+  const list = $("ctList"); if(!list) return;
+  try{
+    ctRows = await api("contactos?obra_id=eq."+encodeURIComponent(S.obraId)+"&order=rol,nombre");
+    renderCtList();
+  }catch(e){ list.textContent = "No se pudieron cargar los contactos."; }
+}
+function renderCtList(){
+  const list = $("ctList"); if(!list) return;
+  if(!ctRows.length){ list.className="meta"; list.textContent = "Sin contactos todavía. Cargá el primero acá abajo."; return; }
+  list.className = "";
+  list.innerHTML = ctRows.map(c=>{
+    const prom = promedioCalif(c);
+    const abierto = ctExpandido.has(c.id);
+    return '<div class="team-row" style="align-items:flex-start">'
+      + '<span class="avatar" style="margin-top:2px">'+esc(initials(c.nombre))+'</span>'
+      + '<span style="flex:1; min-width:0; font-weight:400">'
+      + '<strong>'+esc(c.nombre)+'</strong> <span class="chip" style="font-size:11px">'+esc(c.rol)+'</span><br>'
+      + (prom>0 ? estrellasFijas(prom)+' <span class="meta">'+prom.toFixed(1)+'</span>' : '<span class="meta">Sin calificar</span>')
+      + ' <button class="thread-toggle" data-ctcal="'+esc(c.id)+'" style="display:inline">'+(abierto?'Cerrar':'Calificar')+'</button>'
+      + (abierto ? aspectosHTML(c) : '')
+      + (c.telefono ? '<br><span class="meta" style="font-variant-numeric:tabular-nums">'+esc(c.telefono)+'</span> '
+        + '<a href="'+esc(telLink(c.telefono))+'" style="text-decoration:none; margin-left:6px" aria-label="Llamar">📞</a> '
+        + '<a href="'+esc(waLink(c.telefono))+'" target="_blank" rel="noopener" style="text-decoration:none; margin-left:4px" aria-label="WhatsApp">💬</a>' : '')
+      + (c.notas ? '<br><span class="meta">'+esc(c.notas)+'</span>' : '')
+      + '</span>'
+      + '<button class="rm" data-ctrm="'+esc(c.id)+'" data-ctnom="'+esc(c.nombre)+'">Quitar</button>'
+      + '</div>';
+  }).join("");
+  list.querySelectorAll("[data-ctcal]").forEach(b=>{
+    b.onclick = ()=>{
+      const id = b.dataset.ctcal;
+      if(ctExpandido.has(id)) ctExpandido.delete(id); else ctExpandido.add(id);
+      renderCtList();
+    };
+  });
+  list.querySelectorAll("[data-star]").forEach(b=>{
+    b.onclick = async ()=>{
+      const c = ctRows.find(x=>x.id===b.dataset.ctid); if(!c) return;
+      const cal = Object.assign({}, c.calificacion||{});
+      cal[b.dataset.asp] = Number(b.dataset.star);
+      try{
+        await api("contactos?id=eq."+encodeURIComponent(c.id), {method:"PATCH", body:{calificacion:cal}});
+        c.calificacion = cal;
+        renderCtList();
+      }catch(e){ toast("No se pudo calificar."); }
+    };
+  });
+  list.querySelectorAll("[data-ctrm]").forEach(b=>{
+    b.onclick = ()=> openConfirm("¿Quitar a "+b.dataset.ctnom+"?","Se borra de los contactos de esta obra.", async ()=>{
+      try{
+        await api("contactos?id=eq."+encodeURIComponent(b.dataset.ctrm), {method:"DELETE"});
+        logEvento(S.obraId, "quitó un contacto", b.dataset.ctnom);
+      }catch(e){ toast("No se pudo quitar."); }
+      openContactos();
+    });
+  });
+}
 async function actualizarMinutaIA(){
   const o = obraActual(); if(!o) return;
   const btn = $("iaMinutaBtn");
@@ -1207,9 +1337,26 @@ async function exportarMinuta(){
     + "<h2>Tareas resueltas ("+res.length+")</h2>"+(res.length?"<ul>"+li(res)+"</ul>":"<p class='sub'>Ninguna todavía.</p>")
     + "<h2>Comentarios de obra ("+coms.length+")</h2>"+(coms.length?"<ul>"+li(coms)+"</ul>":"<p class='sub'>Sin comentarios.</p>")
     + "<footer>Generado con EiraLink Obras el "+f+" por "+esc(S.me||"")+".</footer></body></html>";
+  // contactos de la obra
+  let docFinal = doc;
+  try{
+    const cts = await api("contactos?obra_id=eq."+encodeURIComponent(S.obraId)+"&order=rol,nombre");
+    if(cts && cts.length){
+      const sec = "<h2>Contactos de obra ("+cts.length+")</h2><ul>"
+        + cts.map(c=>{
+            const prom = promedioCalif(c);
+            return "<li><p><strong>"+esc(c.nombre)+"</strong> — "+esc(c.rol)
+              + (c.telefono?" · "+esc(c.telefono):"")
+              + (prom>0?" · ★ "+prom.toFixed(1):"")
+              + (c.notas?"<br><small>"+esc(c.notas)+"</small>":"")+"</p></li>";
+          }).join("")
+        + "</ul>";
+      docFinal = doc.replace("<footer>", sec + "<footer>");
+    }
+  }catch(e){}
   const fecha = new Date().toISOString().slice(0,10);
   try{
-    const blob = new Blob([doc], {type:"text/html;charset=utf-8"});
+    const blob = new Blob([docFinal], {type:"text/html;charset=utf-8"});
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "Minuta "+o.nombre.replace(/[\\/:*?"<>|]/g,"-")+" "+fecha+".html";
