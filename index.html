@@ -772,6 +772,7 @@ function renderObra(){
   }
 
   html += '<div class="botonera">'
+    + '<button id="iaBtn"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.6 5.6 1.9-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z"/><path d="M19 15l.7 2.1L22 18l-2.3.9L19 21l-.7-2.1L16 18l2.3-.9z"/></svg>Asistente</button>'
     + '<button id="histBtn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Historial</button>'
     + '<button id="expBtn"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Exportar</button>'
     + (o.estado==="activa"
@@ -811,6 +812,7 @@ function renderObra(){
   main.innerHTML = html;
 
   $("backBtn").onclick = ()=> setView("home");
+  $("iaBtn").onclick = openAsistente;
   $("histBtn").onclick = openHistorial;
   $("expBtn").onclick = exportarMinuta;
   $("finObraBtn").onclick = ()=>{
@@ -1018,6 +1020,44 @@ function openConfirm(titulo, detalle, onOk){
   $("cfSi").onclick = ()=>{ closeSheet(); onOk(); };
 }
 
+function openAsistente(){
+  const o = obraActual(); if(!o) return;
+  openSheet(
+    '<div class="sheet-head"><h3>Asistente · '+esc(o.nombre)+'</h3><button class="closebtn">✕</button></div>'
+    + '<p class="meta" style="margin:0">Preguntale lo que quieras sobre esta obra: responde usando la minuta, las tareas, los comentarios y el historial.</p>'
+    + '<div><textarea id="iaPregunta" style="min-height:70px" placeholder="Ej: ¿qué falta terminar de las cortinas?"></textarea></div>'
+    + '<div class="actions">'
+    + '<div class="mic-inline"><button class="micbtn" id="iaMic" aria-label="Dictar por voz"><svg viewBox="0 0 24 24" style="width:20px;height:20px;stroke:var(--ink);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v4"/><path d="M8 21h8"/></svg></button></div>'
+    + '<div style="flex:1"></div>'
+    + '<button class="btn-primary" id="iaEnviar">Preguntar</button></div>'
+    + '<div id="iaResp" hidden style="background:var(--bg); border:1px solid var(--line); border-radius:12px; padding:12px 14px; white-space:pre-wrap; overflow-wrap:break-word"></div>'
+  );
+  const ta2 = $("iaPregunta");
+  ta2.focus();
+  $("iaMic").onclick = ()=> toggleMic($("iaMic"), ta2);
+  ta2.addEventListener("keydown", e=>{
+    if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); $("iaEnviar").click(); }
+  });
+  $("iaEnviar").onclick = async ()=>{
+    const pregunta = ta2.value.trim(); if(!pregunta) return;
+    stopMic();
+    const btn = $("iaEnviar"), resp = $("iaResp");
+    btn.disabled = true; btn.textContent = "Pensando…";
+    resp.hidden = false; resp.textContent = "Consultando la información de la obra…";
+    try{
+      const r = await fetch(SB_URL+"/functions/v1/asistente", {
+        method:"POST", headers:{"content-type":"application/json"},
+        body: JSON.stringify({obra_id:S.obraId, pregunta})
+      });
+      const data = await r.json();
+      if(data.respuesta) resp.textContent = data.respuesta;
+      else if(data.error==="sin_clave" || data.error==="clave_invalida")
+        resp.textContent = "El asistente todavía no está configurado (falta la clave de API). Avisale a Alejo.";
+      else resp.textContent = "No pude responder ahora. Probá de nuevo en un momento.";
+    }catch(e){ resp.textContent = "No pude conectarme. Revisá tu conexión e intentá de nuevo."; }
+    btn.disabled = false; btn.textContent = "Preguntar";
+  };
+}
 async function openHistorial(){
   const o = obraActual(); if(!o) return;
   openSheet(
